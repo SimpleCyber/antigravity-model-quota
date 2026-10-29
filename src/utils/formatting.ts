@@ -35,6 +35,29 @@ export function formatTimeUntilReset(ms: number): string {
 }
 
 /**
+ * Format milliseconds into a compact reset countdown like the reference image: "6d 23h" or "4h 25m".
+ */
+export function formatResetsIn(ms: number): string {
+    if (ms <= 0) return 'now';
+    const totalMinutes = Math.floor(ms / 60000);
+    const totalHours = Math.floor(totalMinutes / 60);
+    const days = Math.floor(totalHours / 24);
+    const hours = totalHours % 24;
+    const minutes = totalMinutes % 60;
+
+    if (days > 0) {
+        return `${days}d ${hours}h`;
+    }
+    if (hours > 0) {
+        return `${hours}h ${minutes}m`;
+    }
+    if (minutes > 0) {
+        return `${minutes}m`;
+    }
+    return '< 1m';
+}
+
+/**
  * Format a Date into a local time string.
  * e.g., Date → "17:30"
  */

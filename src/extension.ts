@@ -6,11 +6,11 @@
  */
 
 import * as vscode from 'vscode';
-import { StatusBarConfig } from './data/types';
-import { QuotaDataProvider } from './data/types';
+import { StatusBarConfig, QuotaDataProvider } from './data/types';
 import { RealQuotaProvider } from './data/realQuotaProvider';
 import { StatusBarManager } from './statusBar/statusBarManager';
 import { showDetailsQuickPick } from './commands/detailsCommand';
+import { openQuotaWebviewPanel, updateQuotaWebviewIfOpen } from './commands/webviewDashboard';
 
 // ── State ────────────────────────────────────────────
 let statusBarManager: StatusBarManager;
@@ -44,51 +44,55 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     // ── Register Commands ────────────────────────────
 
-    // Show Details (persistent QuickPick on click)
+    // Show Details (Usage QuickPick dashboard on click)
     context.subscriptions.push(
         vscode.commands.registerCommand('antigravity.showDetails', async () => {
             const models = statusBarManager.getLastModels();
             const currentConfig = statusBarManager.getConfig();
 
             if (!dataProvider.isConnected) {
-                vscode.window.showWarningMessage('Not connected to Antigravity. Please ensure Windsurf/Antigravity is running.');
-                // Try to reconnect
+                vscode.window.showWarningMessage('Connecting to Antigravity process...');
                 await refreshQuota();
             }
 
             if (models.length === 0 && dataProvider.isConnected) {
-                vscode.window.showInformationMessage('No model data available yet. Refreshing...');
+                vscode.window.showInformationMessage('Refreshing model data...');
                 await refreshQuota();
                 return;
             }
 
-            const newPinnedIds = await showDetailsQuickPick(
-                () => statusBarManager.getLastModels(), 
+            await showDetailsQuickPick(
+                () => statusBarManager.getLastModels(),
+                () => statusBarManager.getLastGroups(),
                 currentConfig,
                 async () => {
                     await refreshQuota();
                     statusBarManager.showTemporaryMessage('$(check) Quota Data Refreshed');
                 },
-                async (viewMode) => {
-                    statusBarManager.setPopupViewMode(viewMode);
-                    await saveViewMode(context, viewMode);
+                () => {
+                    openQuotaWebviewPanel(
+                        context,
+                        () => statusBarManager.getLastGroups(),
+                        async () => {
+                            await refreshQuota();
+                        }
+                    );
                 }
             );
+        }),
+    );
 
-            if (newPinnedIds !== undefined) {
-                // Save pinned models
-                statusBarManager.setPinnedModels(newPinnedIds);
-                await savePinnedModels(context, newPinnedIds);
-                outputChannel.appendLine(`📌 Pinned models updated: ${newPinnedIds.join(', ') || '(none)'}`);
-
-                // Refresh display (if connection still active)
-                if (dataProvider.isConnected) {
+    // Open Webview Card Dashboard
+    context.subscriptions.push(
+        vscode.commands.registerCommand('antigravity.openDashboard', () => {
+            openQuotaWebviewPanel(
+                context,
+                () => statusBarManager.getLastGroups(),
+                async () => {
                     await refreshQuota();
                 }
-                
-                statusBarManager.showTemporaryMessage('$(check) Yes, it has been updated');
-            }
-        }),
+            );
+        })
     );
 
     // Refresh command
@@ -99,6 +103,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             statusBarManager.showTemporaryMessage('$(check) Quota Refreshed');
             outputChannel.appendLine('🔄 Manual refresh triggered');
         }),
+    );
+
+    // Open Flejet link
+    context.subscriptions.push(
+        vscode.commands.registerCommand('antigravity.openFlejet', () => {
+            vscode.env.openExternal(vscode.Uri.parse('https://flejet.in'));
+        })
+    );
+
+    // Open GitHub repository link
+    context.subscriptions.push(
+        vscode.commands.registerCommand('antigravity.openGitHub', () => {
+            vscode.env.openExternal(vscode.Uri.parse('https://github.com/SimpleCyber/antigravity-model-quota'));
+        })
     );
 
     // ── Listen for document changes (Intelligent Polling) ────
@@ -136,6 +154,10 @@ export function deactivate(): void {
         clearInterval(refreshTimer);
         refreshTimer = undefined;
     }
+    if (idleRefreshTimeout) {
+        clearTimeout(idleRefreshTimeout);
+        idleRefreshTimeout = undefined;
+    }
     dataProvider?.disconnect();
     outputChannel?.appendLine('Antigravity Status Bar Monitor deactivated');
     outputChannel?.dispose();
@@ -149,6 +171,7 @@ export function deactivate(): void {
  */
 function handleDocumentChange(e: vscode.TextDocumentChangeEvent): void {
     if (e.contentChanges.length === 0) return;
+    if (!e.document || (e.document.uri.scheme !== 'file' && e.document.uri.scheme !== 'untitled')) return;
     
     const now = Date.now();
     const timeSinceLastChange = now - lastChangeTime;
@@ -160,7 +183,7 @@ function handleDocumentChange(e: vscode.TextDocumentChangeEvent): void {
     }
     lastChangeTime = now;
 
-    // AI agents often apply large changes or rapid changes
+    // AI agents often apply large changes or rapid bursts of changes
     const isLargeChange = e.contentChanges.some(c => c.text.length > 50 || c.rangeLength > 50);
     
     if (changeBurstCount > 5 || isLargeChange) {
@@ -175,7 +198,6 @@ function handleDocumentChange(e: vscode.TextDocumentChangeEvent): void {
         idleRefreshTimeout = setTimeout(async () => {
             isGenerating = false;
             changeBurstCount = 0;
-            // Activity stopped, trigger refresh
             outputChannel.appendLine('🤖 AI Activity stopped. Auto-refreshing quota...');
             statusBarManager.setLoading();
             await refreshQuota();
@@ -197,15 +219,16 @@ async function refreshQuota(): Promise<void> {
             return;
         }
 
-        const [models, credits] = await Promise.all([
+        const [models, credits, quotaGroups] = await Promise.all([
             dataProvider.fetchQuota(),
             dataProvider.getCredits(),
+            dataProvider.fetchQuotaSummary ? dataProvider.fetchQuotaSummary() : Promise.resolve([]),
         ]);
         
-        if (models.length > 0) {
-            statusBarManager.update(models, credits);
+        if (models.length > 0 || (quotaGroups && quotaGroups.length > 0)) {
+            statusBarManager.update(models, credits, quotaGroups);
+            updateQuotaWebviewIfOpen(() => statusBarManager.getLastGroups());
         } else {
-            // Handle edge case where we're connected but got no models back
             statusBarManager.setError('No models returned from server');
         }
     } catch (err) {
@@ -220,37 +243,18 @@ async function refreshQuota(): Promise<void> {
  */
 function loadConfig(context: vscode.ExtensionContext): StatusBarConfig {
     const vsConfig = vscode.workspace.getConfiguration('agStatusBar');
-
-    // Load pinned models from workspace state (persisted across sessions)
-    // Removed old mock defaults since we're using real IDs now
     const pinnedModelIds = context.globalState.get<string[]>('pinnedModelIds') ?? [];
-    
-    // Load preferred view mode
-    const popupViewMode = context.globalState.get<'flat' | 'grouped'>('popupViewMode') ?? 'grouped';
+    const popupViewMode = context.globalState.get<'flat' | 'grouped' | 'limits'>('popupViewMode') ?? 'grouped';
 
     return {
-        refreshInterval: vsConfig.get<number>('refreshInterval', 15), // faster default for real usage
+        refreshInterval: vsConfig.get<number>('refreshInterval', 15),
         displayFormat: vsConfig.get<'standard' | 'compact' | 'minimal'>('displayFormat', 'standard'),
         warningThreshold: vsConfig.get<number>('warningThreshold', 60),
         criticalThreshold: vsConfig.get<number>('criticalThreshold', 40),
         pinnedModelIds,
-        isPremiumUser: vsConfig.get<boolean>('isPremiumUser', true), // Assume true for now to see all models
+        isPremiumUser: vsConfig.get<boolean>('isPremiumUser', true),
         popupViewMode,
     };
-}
-
-/**
- * Persist pinned model IDs to workspace state.
- */
-async function savePinnedModels(context: vscode.ExtensionContext, ids: string[]): Promise<void> {
-    await context.globalState.update('pinnedModelIds', ids);
-}
-
-/**
- * Persist view mode choice to workspace state.
- */
-async function saveViewMode(context: vscode.ExtensionContext, mode: 'flat' | 'grouped'): Promise<void> {
-    await context.globalState.update('popupViewMode', mode);
 }
 
 /**

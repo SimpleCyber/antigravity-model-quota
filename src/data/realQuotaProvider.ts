@@ -2,13 +2,13 @@
  * Antigravity Status Bar Monitor — Real Quota Data Provider
  *
  * Connects to the local Antigravity language server process via HTTPS
- * and fetches actual model quota data through the GetUserStatus API.
+ * and fetches actual model quota data through GetUserStatus and RetrieveUserQuotaSummary APIs.
  *
  * Falls back to a "not connected" state when the process is unavailable.
  */
 
 import * as https from 'https';
-import { ModelQuota, ModelFamily, QuotaDataProvider, ModelCapabilities } from './types';
+import { ModelQuota, ModelFamily, QuotaDataProvider, ModelCapabilities, QuotaGroup } from './types';
 import { formatTimeUntilReset, formatResetTime } from '../utils/formatting';
 import { detectAntigravityProcess, AntigravityConnection } from './processDetector';
 
@@ -16,7 +16,7 @@ import { detectAntigravityProcess, AntigravityConnection } from './processDetect
 
 interface QuotaInfo {
     remainingFraction?: number;
-    resetTime: string;
+    resetTime?: string;
 }
 
 interface ModelOrAlias {
@@ -69,69 +69,61 @@ interface ServerUserStatusResponse {
     message?: string;
 }
 
+interface ServerQuotaSummaryBucket {
+    bucketId: string;
+    displayName: string;
+    description?: string;
+    window: string;
+    remainingFraction: number;
+    resetTime: string;
+}
+
+interface ServerQuotaSummaryGroup {
+    displayName: string;
+    description?: string;
+    buckets: ServerQuotaSummaryBucket[];
+}
+
+interface ServerQuotaSummaryResponse {
+    response?: {
+        groups?: ServerQuotaSummaryGroup[];
+        description?: string;
+    };
+}
+
 // ── Provider ──────────────────────────────────────────
 
 const GET_USER_STATUS = '/exa.language_server_pb.LanguageServerService/GetUserStatus';
+const RETRIEVE_USER_QUOTA_SUMMARY = '/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary';
 const HTTPS_TIMEOUT_MS = 10_000;
 
 /**
- * Resolves the model family based on the model label.
+ * Resolves the model family based on the model label and id.
  */
 function resolveFamily(label: string, modelId: string): { family: ModelFamily; familyLabel: string } {
     const lower = (label + ' ' + modelId).toLowerCase();
     if (lower.includes('claude') || lower.includes('sonnet') || lower.includes('opus')) {
         return { family: 'claude', familyLabel: 'Claude' };
     }
-    if (lower.includes('gemini')) {
+    if (lower.includes('gemini') || lower.includes('argon')) {
         return { family: 'gemini', familyLabel: 'Gemini' };
     }
-    if (lower.includes('gpt') || lower.includes('openai')) {
+    if (lower.includes('gpt') || lower.includes('openai') || lower.includes('o3') || lower.includes('o4')) {
         return { family: 'gpt', familyLabel: 'GPT / OpenAI' };
     }
     return { family: 'other', familyLabel: 'Other' };
 }
 
 /**
- * Build a short label from the full model label.
+ * Build a concise short label from the full model label for status bar display.
  */
 function buildShortLabel(label: string): string {
-    // Abbreviate common patterns
-    return label
-        .replace(/\s*\(.*?\)\s*/g, '')   // Remove parenthetical notes
-        .replace(/\s+/g, ' ')
-        .trim()
-        .split(' ')
-        .slice(0, 3)
-        .join(' ');
-}
-
-/**
- * Remap server labels to user-preferred display names.
- */
-function remapLabel(label: string): string {
-    const lower = label.toLowerCase();
-    
-    // Gemini
-    if (lower.includes('gemini')) {
-        if (lower.includes('high')) return 'Gemini 3.1 Pro High';
-        if (lower.includes('low') || lower.includes('pro')) return 'Gemini 3.1 Pro Low';
-        if (lower.includes('flash')) return 'Gemini 3 Flash';
-        return 'Gemini 3.1 Pro High';
-    }
-    
-    // Claude
-    if (lower.includes('claude') || lower.includes('sonnet') || lower.includes('opus')) {
-        if (lower.includes('sonnet')) return 'Cloud Sonnet 4.6';
-        if (lower.includes('opus')) return 'Thinking Cloud Opus 4.6';
-        return 'Cloud Sonnet 4.6';
-    }
-    
-    // GPT
-    if (lower.includes('gpt') || lower.includes('o3') || lower.includes('o4')) {
-        return 'Thinking GPT OSS 120 Billion Medium';
-    }
-    
-    return label;
+    let short = label.trim();
+    short = short.replace(/^Claude\s+/i, '');
+    short = short.replace(/^Gemini\s+3\.8\s+/i, 'Gemini ');
+    short = short.replace(/\(Thinking\)/i, '(Think)');
+    short = short.replace(/\(Medium\)/i, '(Med)');
+    return short.trim();
 }
 
 /**
@@ -215,8 +207,40 @@ export class RealQuotaProvider implements QuotaDataProvider {
         } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
             this.logFn(`[RealQuotaProvider] Fetch failed: ${msg}`);
-            // Connection might be stale; reset
             this.connection = null;
+            return [];
+        }
+    }
+
+    /**
+     * Fetch quota pool limits (Weekly & 5-Hour Limits) from RetrieveUserQuotaSummary.
+     */
+    async fetchQuotaSummary(): Promise<QuotaGroup[]> {
+        if (!this.connection) {
+            const connected = await this.connect();
+            if (!connected) {
+                return [];
+            }
+        }
+
+        try {
+            const response = await this.transmit<ServerQuotaSummaryResponse>(
+                this.connection!.port,
+                this.connection!.csrfToken,
+                RETRIEVE_USER_QUOTA_SUMMARY,
+                {
+                    metadata: {
+                        ideName: 'antigravity',
+                        extensionName: 'antigravity',
+                        locale: 'en',
+                    },
+                },
+            );
+
+            return this.parseQuotaSummary(response);
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            this.logFn(`[RealQuotaProvider] Fetch quota summary failed: ${msg}`);
             return [];
         }
     }
@@ -229,6 +253,38 @@ export class RealQuotaProvider implements QuotaDataProvider {
     }
 
     // ── Internal helpers ──────────────────────────────
+
+    /**
+     * Parse ServerQuotaSummaryResponse into QuotaGroup[].
+     */
+    private parseQuotaSummary(data: ServerQuotaSummaryResponse): QuotaGroup[] {
+        const groups = data?.response?.groups ?? [];
+        const now = Date.now();
+
+        return groups.map((g) => ({
+            displayName: g.displayName,
+            description: g.description,
+            buckets: (g.buckets ?? []).map((b) => {
+                let resetTime = b.resetTime ? new Date(b.resetTime) : new Date(now + 5 * 3600 * 1000);
+                if (Number.isNaN(resetTime.getTime())) {
+                    resetTime = new Date(now + 5 * 3600 * 1000);
+                }
+                const delta = Math.max(0, resetTime.getTime() - now);
+                const pct = b.remainingFraction !== undefined ? b.remainingFraction * 100 : 0;
+
+                return {
+                    bucketId: b.bucketId,
+                    displayName: b.displayName,
+                    description: b.description,
+                    window: b.window,
+                    remainingPercentage: Math.round(pct * 100) / 100,
+                    resetTime,
+                    timeUntilResetFormatted: formatTimeUntilReset(delta),
+                    resetTimeDisplay: formatResetTime(resetTime),
+                };
+            }),
+        }));
+    }
 
     /**
      * Parse the ServerUserStatusResponse into ModelQuota[].
@@ -244,7 +300,6 @@ export class RealQuotaProvider implements QuotaDataProvider {
         const status = data.userStatus;
 
         // Extract credits
-        const plan = status.planStatus?.planInfo;
         const available = status.planStatus?.availablePromptCredits;
         if (available !== undefined && Number.isFinite(available)) {
             this.lastCredits = Math.max(0, Number(available));
@@ -269,10 +324,10 @@ export class RealQuotaProvider implements QuotaDataProvider {
 
         const models: ModelQuota[] = configs
             .filter((m): m is ClientModelConfig & { quotaInfo: NonNullable<ClientModelConfig['quotaInfo']> } =>
-                !!m.quotaInfo,
+                !!m.quotaInfo && m.quotaInfo.remainingFraction !== undefined,
             )
             .map((m) => {
-                let resetTime = new Date(m.quotaInfo.resetTime);
+                let resetTime = m.quotaInfo.resetTime ? new Date(m.quotaInfo.resetTime) : new Date(now + 24 * 60 * 60 * 1000);
                 if (Number.isNaN(resetTime.getTime())) {
                     resetTime = new Date(now + 24 * 60 * 60 * 1000);
                 }
@@ -281,15 +336,14 @@ export class RealQuotaProvider implements QuotaDataProvider {
                 const fraction = m.quotaInfo.remainingFraction;
                 const pct = fraction !== undefined ? fraction * 100 : 0;
 
-                const modelId = m.modelOrAlias?.model || 'unknown';
-                const { family, familyLabel } = resolveFamily(m.label, modelId);
-
-                const remappedLabel = remapLabel(m.label);
+                const modelId = m.modelOrAlias?.model || m.label;
+                const label = m.label || modelId;
+                const { family, familyLabel } = resolveFamily(label, modelId);
 
                 return {
                     id: modelId,
-                    label: remappedLabel,
-                    shortLabel: buildShortLabel(remappedLabel),
+                    label,
+                    shortLabel: buildShortLabel(label),
                     family,
                     familyLabel,
                     remainingPercentage: Math.round(pct * 100) / 100,

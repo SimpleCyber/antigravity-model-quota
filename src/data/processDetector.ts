@@ -5,7 +5,7 @@
  * extracts connection parameters (port + CSRF token), and
  * verifies the connection via HTTPS ping.
  *
- * Ported from the Antigravity Cockpit extension (hunter.ts + strategies.ts).
+ * Supports both Antigravity 2.0 (agy.exe) and legacy language_server processes.
  */
 
 import { exec } from 'child_process';
@@ -25,14 +25,15 @@ interface ProcessCandidate {
     pid: number;
     extensionPort: number;
     csrfToken: string;
+    commandLine?: string;
 }
 
 // ── Constants ─────────────────────────────────────────
 
-const TARGET_PROCESS = 'language_server_windows_x64.exe';
+const TARGET_PROCESS_FILTER = "name=''agy.exe'' OR name=''language_server_windows_x64.exe'' OR name=''language_server.exe''";
 const API_ENDPOINT = '/exa.language_server_pb.LanguageServerService/GetUnleashData';
 const PROCESS_CMD_TIMEOUT_MS = 15_000;
-const HTTPS_TIMEOUT_MS = 10_000;
+const HTTPS_TIMEOUT_MS = 5_000;
 
 // ── Public API ────────────────────────────────────────
 
@@ -68,17 +69,15 @@ export async function detectAntigravityProcess(
 
 /**
  * Check if a command line belongs to an Antigravity process.
- * Must match all three conditions:
- *  1. --extension_server_port
- *  2. --csrf_token
- *  3. --app_data_dir antigravity
+ * Must match:
+ *  1. --csrf_token
+ *  2. --app_data_dir antigravity (with = or whitespace) OR --hub-port / --extension_server_port
  */
 function isAntigravityProcess(commandLine: string): boolean {
-    return (
-        commandLine.includes('--extension_server_port') &&
-        commandLine.includes('--csrf_token') &&
-        /--app_data_dir\s+antigravity\b/i.test(commandLine)
-    );
+    const hasCsrf = /--csrf_token[=\s]+/i.test(commandLine);
+    const hasAppDataDir = /--app_data_dir[=\s]+["']?antigravity\b/i.test(commandLine);
+    const hasPortOrHub = /--(?:extension_server_port|hub[-_]port|hub)\b/i.test(commandLine);
+    return hasCsrf && (hasAppDataDir || hasPortOrHub);
 }
 
 /**
@@ -115,7 +114,7 @@ function parseCandidates(stdout: string, log: (m: string) => void): ProcessCandi
                 continue;
             }
 
-            const portMatch = cmdLine.match(/--extension_server_port[=\s]+(\d+)/);
+            const portMatch = cmdLine.match(/--(?:extension_server_port|hub[-_]port)[=\s]+(\d+)/i);
             const tokenMatch = cmdLine.match(/--csrf_token[=\s]+([a-f0-9-]+)/i);
             if (!tokenMatch?.[1]) {
                 log(`[ProcessDetector] Cannot extract CSRF token from PID ${pid}`);
@@ -126,6 +125,7 @@ function parseCandidates(stdout: string, log: (m: string) => void): ProcessCandi
                 pid,
                 extensionPort: portMatch?.[1] ? parseInt(portMatch[1], 10) : 0,
                 csrfToken: tokenMatch[1],
+                commandLine: cmdLine,
             });
         }
 
@@ -144,7 +144,7 @@ async function scanByProcessName(log: (m: string) => void): Promise<AntigravityC
     for (let i = 0; i < maxAttempts; i++) {
         try {
             const utf8 = '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; ';
-            const cmd = `chcp 65001 >nul && powershell -NoProfile -Command "${utf8}Get-CimInstance Win32_Process -Filter 'name=''${TARGET_PROCESS}''' | Select-Object ProcessId,CommandLine | ConvertTo-Json"`;
+            const cmd = `chcp 65001 >nul && powershell -NoProfile -Command "${utf8}Get-CimInstance Win32_Process -Filter '${TARGET_PROCESS_FILTER}' | Select-Object ProcessId,CommandLine | ConvertTo-Json"`;
 
             const { stdout } = await execAsync(cmd, { timeout: PROCESS_CMD_TIMEOUT_MS });
             if (!stdout?.trim()) {
@@ -197,11 +197,30 @@ async function scanByKeyword(log: (m: string) => void): Promise<AntigravityConne
 
 /**
  * Given a candidate, find its listening ports and verify one works.
+ * Tries direct port hints first (e.g. hubPort + 2 for agy, or extensionPort for legacy)
+ * before querying all listening ports from the OS.
  */
 async function verifyAndConnect(
     candidate: ProcessCandidate,
     log: (m: string) => void,
 ): Promise<AntigravityConnection | null> {
+    // 1. Fast path: probe hinted port offsets directly without querying OS network tables
+    if (candidate.extensionPort > 0) {
+        // agy.exe uses hub-port (HTTP) and hub-port + 2 (HTTPS language server API)
+        // legacy language_server uses extension_server_port directly
+        const hintedPorts = [candidate.extensionPort + 3, candidate.extensionPort + 2, candidate.extensionPort + 1, candidate.extensionPort, candidate.extensionPort - 2];
+        for (const port of hintedPorts) {
+            if (port > 0 && port <= 65535) {
+                const ok = await pingPort(port, candidate.csrfToken);
+                if (ok) {
+                    log(`[ProcessDetector] ✅ Fast-verified connection on port ${port}`);
+                    return { port, csrfToken: candidate.csrfToken };
+                }
+            }
+        }
+    }
+
+    // 2. Fallback: retrieve all listening ports for the PID
     const ports = await getListeningPorts(candidate.pid, log);
     if (ports.length === 0) {
         return null;

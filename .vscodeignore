@@ -5,3 +5,10 @@ node_modules/**
 tsconfig.json
 *.map
 .gitignore
+.git/**
+.gitattributes
+*.vsix
+changes.txt
+scratch/**
+*.log
+.env*

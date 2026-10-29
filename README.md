@@ -1,135 +1,125 @@
 # Antigravity Model Quota Monitor
 
+<p align="center">
+  <img src="./assets/banner1.png" alt="Antigravity Quota Tracker Banner" width="100%" />
+</p>
 
+<p align="center">
+  <a href="https://github.com/SimpleCyber/vscode-antigravity-model-quota"><img src="https://img.shields.io/github/stars/SimpleCyber/vscode-antigravity-model-quota?style=flat&color=gold" alt="GitHub stars" /></a>
+  <a href="https://github.com/SimpleCyber/vscode-antigravity-model-quota/issues"><img src="https://img.shields.io/github/issues/SimpleCyber/vscode-antigravity-model-quota" alt="GitHub issues" /></a>
+  <a href="https://github.com/SimpleCyber/vscode-antigravity-model-quota/blob/main/LICENSE"><img src="https://img.shields.io/github/license/SimpleCyber/vscode-antigravity-model-quota" alt="License" /></a>
+  <a href="https://flejet.in"><img src="https://img.shields.io/badge/Powered%20By-Flejet.in-blue" alt="Flejet" /></a>
+</p>
 
-[![GitHub stars](https://img.shields.io/github/stars/SimpleCyber/vscode-antigravity-model-quota?style=flat&color=gold)](https://github.com/SimpleCyber/vscode-antigravity-model-quota)
-[![GitHub issues](https://img.shields.io/github/issues/SimpleCyber/vscode-antigravity-model-quota)](https://github.com/SimpleCyber/vscode-antigravity-model-quota/issues)
-[![License](https://img.shields.io/github/license/SimpleCyber/vscode-antigravity-model-quota)](https://github.com/SimpleCyber/vscode-antigravity-model-quota/blob/main/LICENSE)
-
-
-
-<img width="788" height="243" alt="image" src="https://github.com/user-attachments/assets/305888e4-9e9e-447b-a737-850accbccfb3" />
-
-VS Code extension for monitoring Google Antigravity AI model quotas directly in your status bar.
-
-<img src="https://github.com/user-attachments/assets/384401dd-0868-4176-997e-4ad54a67bb97" width="800"/>
-
-<br>
-
-**Features**: Status Bar Monitor · Rich Hover Tooltip · QuickPick Panel · Threshold Indicators · Custom Display Formats
-
-<br>
-
-<img src="https://github.com/user-attachments/assets/182fcab9-7076-4924-86b2-db2e1c4e3a90" width="800"/>
-
-
-**Features**: Status Bar Monitor · Rich Hover Tooltip · QuickPick Panel · Threshold Indicators · Custom Display Formats
+**Antigravity Model Quota Monitor** is a lightweight VS Code / Antigravity IDE extension that tracks your Google Antigravity AI model quotas (Gemini, Claude, GPT) in real-time right in your status bar and interactive dashboard.
 
 ---
 
-## Features
+## ✨ Features
 
-### Status Bar Display
+### 1. Minimal & Informative Status Bar
+Keep track of remaining quotas without clutter. The status bar displays real-time quotas for both **Gemini** and **Claude** pools, followed by branding and quick links.
 
-Keep track of your Antigravity AI model quotas right inside your status bar without breaking your flow. 
+```text
+🟢 Gemini: 97%  🟢 Claude: 100%   🐰
+```
 
-Three display formats available, configurable via `agStatusBar.displayFormat`:
+Configurable via `agStatusBar.displayFormat`:
+- **Standard**: `🟢 Gemini: 97%  🟢 Claude: 100%   🐰`
+- **Compact**: `🟢97% | 🟢100%   🐰`
+- **Minimal**: `🟢 🟢   🐰`
 
-| Format | Example |
-|--------|---------|
-| **Standard** | `🟢 Claude: 80% 🟡 Gemini: 40%` |
-| **Compact** | `🟢80% 🟡40%` |
-| **Minimal** | `🟢🟡🔴` (Clean & unobtrusive dots only) |
 
-- **Dynamic Colors**: Indicator turns yellow or red based on configurable warning/critical thresholds.
-
----
-
-## ⭐ Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=SimpleCyber/vscode-antigravity-model-quota&type=Date)](https://www.star-history.com/#SimpleCyber/vscode-antigravity-model-quota&Date)
----
-
-### Rich Hover Tooltip
-
-Hover over the status bar item to reveal a rich popup:
-- **Organized by Family**: Claude, Gemini, and GPT models cleanly categorized.
-- **Visual Progress**: Custom progress bars for an instant understanding of your usage.
-- **Precision Metrics**: See exact percentage remaining, credits, and the reset countdown.
 
 ---
 
-### Persistent QuickPick Panel
+### 2. Rich Hover Tooltip
+Hover over the status bar item to view the exact usage breakdown for your quota pools:
+<p align="center">
+  <img src="./assets/banner2.png" alt="Antigravity IDE Status Bar and Hover Tooltip" width="100%" />
+</p>
 
-Click the status indicator to open an interactive command panel:
-- **Comprehensive View**: Inspect detailed quota info for all supported models.
-- **Model Capabilities**: Instantly check capabilities like Text, Code, Image, Video, and Thinking logic.
-- **Quick Toggles**: Pin or unpin specific models to your status bar on the fly.
-- **Lightning Fast**: Press `Esc` to dismiss and get back to coding.
+- **Gemini Models**: Weekly limit & 5-hour limit percentages, along with exact time to reset (`Resets in 6d 23h`, `Resets in 4h 25m`).
+- **Claude & GPT Models**: Independent tracking for Anthropic Claude and OpenAI GPT quotas.
+- **Top-Right Quick Refresh**: Instant resync via the `🔄️` emoji in the top right corner.
+- **Brand & Community Links**: Direct access to [flejet.in](https://flejet.in) and GitHub [Contribute here](https://github.com/SimpleCyber/antigravity-model-quota).
 
----
 
-## Usage
-
-1. **Open QuickPick**:
-   - Click the status bar indicator
-   - Or run `Antigravity: Show Model Quota Details` from the command palette
-
-2. **Refresh**: 
-   - Run `Antigravity: Refresh Quota Data` from the command palette
-   - Or configure auto-refresh via `agStatusBar.refreshInterval`
 
 ---
 
-## Configuration
+### 3. Antigravity 2.0 & Windsurf Integration
+- Automatic process detection for both **Antigravity 2.0** (`agy.exe`) and legacy language server architectures.
+- Intelligent discovery of hub ports and CSRF authentication tokens from command-line arguments and local process environments.
+- Smart activity-based polling: refreshes seamlessly when code generation finishes, avoiding redundant API calls.
 
-Tune the monitor to fit your exact workflow in VS Code Settings:
+---
+
+## ⚙️ Configuration
+
+Fine-tune the monitor in VS Code Settings (`Ctrl+,` or `Cmd+,`):
 
 | Setting | Default | Description |
-|---------|---------|-------------|
-| `agStatusBar.refreshInterval` | `15` | Interval in seconds to refresh quota data (Range: 5-3600) |
-| `agStatusBar.displayFormat` | `standard` | Format of the status bar display (`standard`, `compact`, `minimal`) |
-| `agStatusBar.warningThreshold` | `60` | Quota drops below this %? The indicator turns **yellow** |
-| `agStatusBar.criticalThreshold` | `40` | Quota drops below this %? The indicator turns **red** |
-| `agStatusBar.isPremiumUser` | `false` | Whether the user has a premium membership (shows extra models) |
+|---|---|---|
+| `agStatusBar.refreshInterval` | `15` | Interval in seconds to automatically poll quota data (Range: 5–3600) |
+| `agStatusBar.displayFormat` | `standard` | Status bar format: `standard`, `compact`, or `minimal` |
+| `agStatusBar.warningThreshold` | `60` | Percentage at which status indicators turn **yellow** |
+| `agStatusBar.criticalThreshold` | `40` | Percentage at which status indicators turn **red** |
+| `agStatusBar.isPremiumUser` | `false` | Enable display of extra premium tier models |
 
 ---
 
-## Installation
+## ⌨️ Commands
 
-### VS Code Marketplace
-1. `Cmd/Ctrl+Shift+X` to open Extensions panel
-2. Search `Antigravity Model Quota Monitor`
-3. Click Install
+Access these from the VS Code Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`):
 
-### Build from Source
+- **`Antigravity: Show Model Quota Details`**: Open the QuickPick model inspector.
+- **`Antigravity: Open Model Quota Dashboard`**: Open the full webview dashboard with progress rings.
+- **`Antigravity: Refresh Quota Data`**: Trigger an immediate quota resync.
+- **`Antigravity: Visit Flejet.in`**: Open Flejet in your browser.
+- **`Antigravity: View GitHub Repository`**: Visit this repository on GitHub.
+
+---
+
+## 🛠️ Building & Developing
 
 ```bash
 # Clone repository
-git clone https://github.com/SimpleCyber/vscode-antigravity-model-quota.git
-cd vscode-antigravity-model-quota
+git clone https://github.com/SimpleCyber/antigravity-model-quota.git
+cd antigravity-model-quota
 
 # Install dependencies
 npm install
 
-# Compile
-npm run compile
+# Build extension
+npm run build
 
-# Package
+# Package VSIX
 npm run package
 ```
 
-Requirements: Node.js v20+, npm v9+
+Requirements: Node.js 18+ and npm.
 
 ---
 
-## Support
+## 🤝 Community & Credits
 
-- ⭐ [GitHub Star](https://github.com/SimpleCyber/vscode-antigravity-model-quota)
-- 💬 [Report Issues](https://github.com/SimpleCyber/vscode-antigravity-model-quota/issues)
+<p align="center">
+  <a href="https://flejet.in">
+    <img src="./assets/flejet.png" alt="Flejet Logo" width="48" height="45" />
+  </a>
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="https://github.com/SimpleCyber/antigravity-model-quota">
+    <img src="./assets/github.png" alt="GitHub Logo" width="48" height="48" />
+  </a>
+</p>
+
+- **Flejet**: Growth and social media workflow automation: [flejet.in](https://flejet.in)
+- **GitHub**: [SimpleCyber/antigravity-model-quota](https://github.com/SimpleCyber/antigravity-model-quota)
+- **Author**: SimpleCyber
 
 ---
 
-## License
+## 📄 License
 
-[MIT](LICENSE)
+[MIT](LICENSE.txt)

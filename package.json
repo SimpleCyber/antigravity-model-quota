@@ -38,6 +38,17 @@
         "title": "Refresh Quota Data",
         "category": "Antigravity",
         "icon": "$(sync)"
+      },
+      {
+        "command": "antigravity.openFlejet",
+        "title": "Visit Flejet.in",
+        "category": "Antigravity"
+      },
+      {
+        "command": "antigravity.openGitHub",
+        "title": "View GitHub Repository",
+        "category": "Antigravity",
+        "icon": "$(github)"
       }
     ],
     "configuration": {
@@ -64,9 +75,9 @@
             "minimal"
           ],
           "enumDescriptions": [
-            "🟢 Claude: 80% | 🟡 Gemini: 40%",
-            "🟢80% | 🟡40%",
-            "🟢🟡🔴 (dots only)"
+            "\ud83d\udfe2 Claude: 80% | \ud83d\udfe1 Gemini: 40%",
+            "\ud83d\udfe280% | \ud83d\udfe140%",
+            "\ud83d\udfe2\ud83d\udfe1\ud83d\udd34 (dots only)"
           ],
           "description": "Format of the status bar display."
         },
@@ -98,7 +109,7 @@
   "devDependencies": {
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.90.0",
-    "esbuild": "^0.27.2",
+    "esbuild": "^0.28.2",
     "typescript": "^5.3.0"
   }
 }

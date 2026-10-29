@@ -60,6 +60,25 @@ export interface ModelQuota {
     isRecommended?: boolean;
 }
 
+/** Quota pool bucket (Weekly Limit, 5-Hour Limit) */
+export interface QuotaBucket {
+    bucketId: string;
+    displayName: string;
+    description?: string;
+    window: 'weekly' | '5h' | string;
+    remainingPercentage: number;
+    resetTime: Date;
+    timeUntilResetFormatted: string;
+    resetTimeDisplay: string;
+}
+
+/** Quota pool group (Gemini Models, Claude and GPT models) */
+export interface QuotaGroup {
+    displayName: string;
+    description?: string;
+    buckets: QuotaBucket[];
+}
+
 /** User configuration for the extension */
 export interface StatusBarConfig {
     /** Refresh interval in seconds */
@@ -74,14 +93,19 @@ export interface StatusBarConfig {
     pinnedModelIds: string[];
     /** Whether the user has a premium membership */
     isPremiumUser: boolean;
-    /** View mode for the popup: 'flat' for individual models, 'grouped' for quota families */
-    popupViewMode: 'flat' | 'grouped';
+    /** View mode for the popup: 'flat' for individual models, 'grouped' for quota families, 'limits' for pool limits */
+    popupViewMode: 'flat' | 'grouped' | 'limits';
 }
 
 /** Data provider interface */
 export interface QuotaDataProvider {
     /** Fetch all model quotas */
     fetchQuota(): Promise<ModelQuota[]>;
+    /** Fetch quota pool limits (Weekly & 5-Hour Limits) */
+    fetchQuotaSummary?(): Promise<QuotaGroup[]>;
     /** Get available credits */
     getCredits(): Promise<number>;
+    readonly isConnected: boolean;
+    connect(): Promise<boolean>;
+    disconnect(): void;
 }

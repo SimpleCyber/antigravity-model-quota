@@ -1,27 +1,13 @@
 /**
- * Antigravity Status Bar Monitor — Details Command (Persistent QuickPick)
+ * Antigravity Status Bar Monitor — Dashboard Window
  * 
- * Opens a persistent QuickPick panel that shows all model quotas.
- * Users can select/deselect models to pin them to the status bar.
- * Matches the clean aesthetic of the Antigravity Cockpit UI.
+ * Displays the clean Usage dashboard matching the official reference image.
+ * Read-only view (no checkboxes, no choosing anything).
  */
 
 import * as vscode from 'vscode';
-import { ModelQuota, StatusBarConfig, ModelFamily } from '../data/types';
-import {
-    getStatusIcon,
-    generateProgressBar,
-    formatPercentage
-} from '../utils/formatting';
-
-const FAMILY_ORDER: ModelFamily[] = ['claude', 'gemini', 'gpt', 'other'];
-
-interface ModelQuickPickItem extends vscode.QuickPickItem {
-    modelId: string;
-    isPinned: boolean;
-    family: ModelFamily;
-    isSeparator?: boolean;
-}
+import { ModelQuota, StatusBarConfig, QuotaGroup } from '../data/types';
+import { getStatusIcon } from '../utils/formatting';
 
 // Custom UI Buttons
 const REFRESH_BUTTON: vscode.QuickInputButton = {
@@ -29,59 +15,80 @@ const REFRESH_BUTTON: vscode.QuickInputButton = {
     tooltip: 'Refresh Quota Data'
 };
 
-const VIEW_FLAT_BUTTON: vscode.QuickInputButton = {
-    iconPath: new vscode.ThemeIcon('list-flat'),
-    tooltip: 'Switch to Flat View'
-};
-
-const VIEW_GROUPED_BUTTON: vscode.QuickInputButton = {
-    iconPath: new vscode.ThemeIcon('list-tree'),
-    tooltip: 'Switch to Grouped View'
+const WEBVIEW_BUTTON: vscode.QuickInputButton = {
+    iconPath: new vscode.ThemeIcon('layout-dashboard'),
+    tooltip: 'Open Visual Card Dashboard'
 };
 
 /**
- * Show the persistent details QuickPick.
- * Returns an object with pinned models and any configuration changes.
+ * Show the clean Usage window dashboard matching the reference image.
+ * No checkboxes, no individual models, exactly matching the screenshot.
  */
 export async function showDetailsQuickPick(
     getModels: () => ModelQuota[],
+    getGroups: () => QuotaGroup[],
     config: StatusBarConfig,
     onRefreshRequested: () => Promise<void>,
-    onViewModeChanged: (mode: 'flat' | 'grouped') => void
-): Promise<string[] | undefined> {
-    return new Promise<string[] | undefined>((resolve) => {
-        const qp = vscode.window.createQuickPick<ModelQuickPickItem>();
-        qp.title = '🚀 Antigravity Model Quotas';
-        qp.placeholder = 'Select models to pin to the status bar. Press Escape to close.';
-        qp.canSelectMany = true;
+    onOpenWebview?: () => void
+): Promise<void> {
+    return new Promise<void>((resolve) => {
+        const qp = vscode.window.createQuickPick();
+        qp.title = 'Usage — Antigravity Quota';
+        qp.placeholder = 'Usage overview. Press Escape to close.';
+        qp.canSelectMany = false; // Disables checkboxes / choosing completely
         qp.matchOnDescription = true;
         qp.matchOnDetail = true;
-        
-        let viewMode = config.popupViewMode || 'grouped';
-        
-        // Setup initial buttons
-        qp.buttons = [
-            REFRESH_BUTTON,
-            viewMode === 'flat' ? VIEW_GROUPED_BUTTON : VIEW_FLAT_BUTTON
-        ];
+        qp.buttons = onOpenWebview ? [REFRESH_BUTTON, WEBVIEW_BUTTON] : [REFRESH_BUTTON];
 
-        // Build items
         const updateItems = () => {
-            const currentModels = getModels();
-            const items = viewMode === 'flat' 
-                ? buildFlatItems(currentModels, config)
-                : buildGroupedItems(currentModels, config);
+            const groups = getGroups();
+            const items: vscode.QuickPickItem[] = [];
+
+            if (groups && groups.length > 0) {
+                for (const group of groups) {
+                    items.push({
+                        label: `${group.displayName} ⓘ`,
+                        kind: vscode.QuickPickItemKind.Separator,
+                    });
+
+                    const weekly = group.buckets.find(b => b.window === 'weekly');
+                    const fiveH = group.buckets.find(b => b.window === '5h');
+
+                    if (weekly) {
+                        const icon = getStatusIcon(weekly.remainingPercentage, config);
+                        const pct = Math.round(weekly.remainingPercentage);
+                        const detail = weekly.description ? `    ${weekly.description}` : '';
+
+                        items.push({
+                            label: weekly.displayName,
+                            description: `${pct}%  ${icon}`,
+                            detail,
+                        });
+                    }
+
+                    if (fiveH) {
+                        const icon = getStatusIcon(fiveH.remainingPercentage, config);
+                        const pct = Math.round(fiveH.remainingPercentage);
+                        const detail = fiveH.description ? `    ${fiveH.description}` : '';
+
+                        items.push({
+                            label: fiveH.displayName,
+                            description: `${pct}%  ${icon}`,
+                            detail,
+                        });
+                    }
+                }
+            } else {
+                items.push({
+                    label: 'No quota data available',
+                    description: 'Click $(sync) to refresh',
+                });
+            }
+
             qp.items = items;
-            qp.selectedItems = items.filter(i => i.isPinned && !i.isSeparator);
         };
-        
+
         updateItems();
-
-        let lastSelectedIds = new Set(config.pinnedModelIds);
-
-        qp.onDidChangeSelection((selected) => {
-            lastSelectedIds = new Set(selected.map(i => i.modelId));
-        });
 
         // Handle button clicks
         qp.onDidTriggerButton(async (btn) => {
@@ -91,107 +98,23 @@ export async function showDetailsQuickPick(
                 updateItems();
                 qp.busy = false;
                 vscode.window.showInformationMessage('Refreshed Antigravity quota data.');
-            } else if (btn === VIEW_FLAT_BUTTON) {
-                viewMode = 'flat';
-                onViewModeChanged('flat');
-                qp.buttons = [REFRESH_BUTTON, VIEW_GROUPED_BUTTON];
-                updateItems();
-            } else if (btn === VIEW_GROUPED_BUTTON) {
-                viewMode = 'grouped';
-                onViewModeChanged('grouped');
-                qp.buttons = [REFRESH_BUTTON, VIEW_FLAT_BUTTON];
-                updateItems();
+            } else if (btn === WEBVIEW_BUTTON && onOpenWebview) {
+                qp.hide();
+                onOpenWebview();
             }
         });
 
+        // Close on Enter or click
+        qp.onDidAccept(() => {
+            qp.hide();
+        });
+
+        // Close and clean up
         qp.onDidHide(() => {
-            const result = Array.from(lastSelectedIds);
-            resolve(result);
             qp.dispose();
+            resolve();
         });
 
         qp.show();
     });
-}
-
-/**
- * Build a flat list of models, ordered by remaining percentage.
- */
-function buildFlatItems(models: ModelQuota[], config: StatusBarConfig): ModelQuickPickItem[] {
-    const items: ModelQuickPickItem[] = [];
-    const sorted = [...models].sort((a, b) => a.remainingPercentage - b.remainingPercentage);
-
-    for (const model of sorted) {
-        items.push(createModelItem(model, config));
-    }
-
-    return items;
-}
-
-/**
- * Build grouped list of models by family.
- */
-function buildGroupedItems(models: ModelQuota[], config: StatusBarConfig): ModelQuickPickItem[] {
-    const items: ModelQuickPickItem[] = [];
-    const grouped = new Map<ModelFamily, ModelQuota[]>();
-
-    for (const model of models) {
-        const group = grouped.get(model.family) ?? [];
-        group.push(model);
-        grouped.set(model.family, group);
-    }
-
-    for (const family of FAMILY_ORDER) {
-        const familyModels = grouped.get(family);
-        if (!familyModels || familyModels.length === 0) {
-            continue;
-        }
-
-        const familyLabel = familyModels[0].familyLabel;
-
-        items.push({
-            label: familyLabel,
-            kind: vscode.QuickPickItemKind.Separator,
-            modelId: '',
-            isPinned: false,
-            family,
-            isSeparator: true,
-        });
-
-        // Sort models within group by percentage
-        familyModels.sort((a, b) => a.remainingPercentage - b.remainingPercentage);
-
-        for (const model of familyModels) {
-            items.push(createModelItem(model, config));
-        }
-    }
-
-    return items;
-}
-
-/**
- * Create a clean, Cockpit-style item for a single model.
- */
-function createModelItem(model: ModelQuota, config: StatusBarConfig): ModelQuickPickItem {
-    const icon = getStatusIcon(model.remainingPercentage, config);
-    const pinIcon = model.isPinned ? '$(pinned)' : '$(circle-outline)';
-    const pct = formatPercentage(model.remainingPercentage);
-    const bar = generateProgressBar(model.remainingPercentage);
-    
-    // Clean label layout
-    // $(pinned) $(pass-filled) Claude 3.5 Sonnet
-    const label = `${pinIcon} ${icon} ${model.shortLabel}`;
-    
-    // Clean detail layout
-    //     ▓▓▓▓▓▓▓▓░░ 80.5% | Reset: 2h 15m (07:30)
-    const detail = `    ${bar} ${pct} | Reset: ${model.timeUntilResetFormatted} (${model.resetTimeDisplay})`;
-
-    return {
-        label,
-        detail,
-        modelId: model.id,
-        isPinned: model.isPinned,
-        family: model.family,
-        picked: model.isPinned,
-    };
 }
